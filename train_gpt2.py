@@ -251,7 +251,15 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
-train_loader = DataLoaderLite(16,1024)
+total_batch_size = 524288
+B = 16
+T = 1024
+assert total_batch_size % (B * T) == 0
+grad_accum_steps = total_batch_size // (B *T)
+
+print(f"Total desired batch size: {total_batch_size}")
+print(f"=> calculated grad accumulations teps: {grad_accum_steps}")
+train_loader = DataLoaderLite(B=B,T=T)
 torch.set_float32_matmul_precision('high')
 
 #model = GPT.from_pretrain€ed('gpt2')
@@ -282,13 +290,18 @@ optimizer = model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, dev
 
 for step in range(max_steps):
     t0 = time.time()
-    x,y = train_loader.next_batch()
-    x = x.to(device)
-    y = y.to(device)
     optimizer.zero_grad()
-    with torch.autocast(device_type = device, dtype=torch.bfloat16):
-        logits, loss = model(x, y)
-    loss.backward()
+    loss_accum = 0.0
+    for microstep in range(grad_accum_steps):
+        x,y = train_loader.next_batch()
+        x = x.to(device)
+        y = y.to(device)
+        
+        with torch.autocast(device_type = device, dtype=torch.bfloat16):
+            logits, loss = model(x, y)
+        loss = loss / grad_accum_steps
+        loss_accum += loss.detach()
+        loss.backward()
     norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     # determine lr and update
     lr = get_lr(step)
@@ -298,8 +311,9 @@ for step in range(max_steps):
     torch.cuda.synchronize()
     t1 = time.time()
     dt = (t1-t0) * 1000
-    tok_per_sec = (train_loader.B * train_loader.T ) / (t1-t0)
-    print(f"step: {step:4d} | loss: {loss.item():.6f} | lr: {lr:.4e}| norm: {norm:.4f} | dt: {dt:.2f},s | tok/sec: {tok_per_sec:.2f}")
+    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps
+    tok_per_sec = tokens_processed / (t1-t0)
+    print(f"step: {step:4d} | loss: {loss_accum.item():.6f} | lr: {lr:.4e}| norm: {norm:.4f} | dt: {dt:.2f},s | tok/sec: {tok_per_sec:.2f}")
 
 
 import sys
