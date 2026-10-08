@@ -1,0 +1,13 @@
+[project]
+name = "gpt2"
+version = "0.1.0"
+author = "Sam Barnett, sfhbarnett91@gmail.com"
+description = "Training GPT2 just for fun!"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "datasets>=5.1.0",
+    "numpy>=2.5.3",
+    "tiktoken>=0.14.0",
+    "tqdm>=4.70.1",
+]
