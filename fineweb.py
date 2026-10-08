@@ -1,5 +1,5 @@
 import os
-import multiprocessing
+import multiprocessing as mp
 import numpy as np
 import tiktoken
 from datasets import load_dataset
@@ -7,19 +7,25 @@ from tqdm import tqdm
 
 local_dir = "edu_fineweb10B"
 remote_name = "sample-10BT"
-shared_size = int(1e8)
+shard_size = int(1e8)
 
+
+local_dir = "edu_fineweb10B"   # output on the volume
 
 DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), local_dir)
 os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 
-fw = load_dataset("HuggingFaceFW/fineweb-edu", name=remote_name, split="train")
+fw = load_dataset(
+    "HuggingFaceFW/fineweb-edu",
+    name=remote_name,
+    split="train",
+)
 
 enc = tiktoken.get_encoding("gpt2")
 eot = enc._special_tokens["<|endoftext|>"]
 
 def tokenize(doc):
-    tokens[eot]
+    tokens = [eot]
     tokens.extend(enc.encode_ordinary(doc["text"]))
     tokens_np = np.array(tokens)
     assert(0 <= tokens_np).all() and (tokens_np < 2**16).all()
@@ -34,13 +40,13 @@ with mp.Pool(nprocs) as pool:
     shard_index = 0
     all_tokens_np = np.empty((shard_size,), dtype=np.uint16)
     token_count = 0
-    progres_bar = None
-    for tokens in pool.imap(tokenize, fw, chunk_size=16):
+    progress_bar = None
+    for tokens in pool.imap(tokenize, fw, chunksize=16):
         if token_count + len(tokens) < shard_size:
             all_tokens_np[token_count:token_count+len(tokens)] = tokens
             token_count += len(tokens)
-            if progres_bar is None:
-                progres_bar = tqdm(total=shard_size, unit="tokens", desc=f"shard {shard_index}")
+            if progress_bar is None:
+                progress_bar = tqdm(total=shard_size, unit="tokens", desc=f"shard {shard_index}")
             progress_bar.update(len(tokens))
         else:
             # write the current shard and start a new one
